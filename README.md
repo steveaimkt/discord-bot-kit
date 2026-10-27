@@ -56,14 +56,14 @@ claude plugin install discord-bot-kit@discord-bot-kit
 
 ```powershell
 # 윈도우 · 보기만
-powershell -NoProfile -ExecutionPolicy Bypass -File plugins\discord-bot-kit\skills\discord-bot-setup\scripts\doctor.ps1 -Project C:\Users\me\Desktop\MCP실습
+powershell -NoProfile -ExecutionPolicy Bypass -File plugins\discord-bot-kit\skills\discord-bot-setup\scripts\doctor.ps1 -Project C:\Users\me\Desktop\업무봇
 # 고치기까지
 ... doctor.ps1 -Fix -Project ...
 ```
 
 ```bash
 # 맥
-bash plugins/discord-bot-kit/skills/discord-bot-setup/scripts/doctor.sh --fix --project ~/Desktop/MCP실습
+bash plugins/discord-bot-kit/skills/discord-bot-setup/scripts/doctor.sh --fix --project ~/Desktop/업무봇
 ```
 
 출력 맨 끝 `DOCTOR_JSON` 줄은 스킬이 읽는 판정입니다.
