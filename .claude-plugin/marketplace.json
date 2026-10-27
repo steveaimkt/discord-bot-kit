@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "discord-bot-kit",
+  "description": "Claude Code 공식 디스코드 채널 플러그인을 윈도우에서 막힘 없이 설치하고 켜는 도구 모음.",
+  "owner": {
+    "name": "한성국",
+    "email": "steve@wmbb.kr"
+  },
+  "plugins": [
+    {
+      "name": "discord-bot-kit",
+      "description": "「디스코드 봇 세팅하자」 한 줄로 점검 → 자동 수리 → 토큰 등록 → 봇 켜기 → 페어링까지. 윈도우에서 자주 막히는 bun 경로 · 첫 실행 시간 초과 · .env 인코딩 · TLS · Message Content Intent 를 스크립트가 찾아 고친다.",
+      "author": {
+        "name": "한성국",
+        "email": "steve@wmbb.kr"
+      },
+      "category": "productivity",
+      "source": "./plugins/discord-bot-kit",
+      "version": "0.2.0",
+      "tags": ["discord", "channels", "windows", "setup", "korean"]
+    }
+  ]
+}
