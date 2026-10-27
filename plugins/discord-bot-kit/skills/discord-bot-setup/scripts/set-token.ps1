@@ -22,6 +22,7 @@ for ($try = 1; $try -le 3; $try++) {
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
   $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  # 붙여 넣을 때 따라온 줄바꿈 · 공백 · 따옴표를 모두 걷어 낸다 (\r 이 남으면 공식 서버가 토큰을 못 쓴다)
   $token = ($token -replace '\s', '').Trim('"').Trim("'")
   if ($token.StartsWith('Bot')) { $token = $token.Substring(3) }
   if (($token -split '\.').Count -ne 3) {

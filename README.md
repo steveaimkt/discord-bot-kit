@@ -46,6 +46,11 @@ claude plugin install discord-bot-kit@discord-bot-kit
 | Message Content Intent 를 안 켰다 | 디스코드 API `applications/@me` 로 직접 확인한다 |
 | 서버 초대 URL 을 못 만든다 | 권한 6개를 넣은 초대 주소를 스크립트가 만든다 |
 | 답장마다 허용 창 | `.claude/settings.local.json` 에 디스코드 도구 허용 |
+| **봇 서버가 오류 없이 안 뜸** (claude-code#42769 · #80822) | 디스코드 플러그인을 사용자 범위에서 꺼 두고 봇 세션만 `--settings` 로 켠다. 켜기 직전 `mcp-needs-auth-cache.json` 의 `plugin:discord:discord` 를 지운다 (맥에서 재현 · 2026-10-27) |
+| **DM 은 오는데 답장이 「not allowlisted」** (claude-plugins-official#6768) | `fetchAllowedChannel` 에 3줄 우회 패치 · 원본 `server.ts.orig` · `-Unpatch` 로 되돌림 · 그래도 막히면 `-Channel <이름>` 으로 서버 채널 전환 |
+| `.env` 가 CRLF | 공식 서버는 `\n` 으로만 나눠 `\r` 이 토큰에 붙는다 · 걷어 낸다 |
+| 켜졌는데 무반응 | 디스코드 MCP 로그로 판정 · 접속 · 「channels feature is not currently available」 · 토큰 · bun |
+| 끝내 안 됨 | 대체 경로 · 확장 입력칸 `/remote-control` + 휴대폰 Claude 앱 (bun · 디스코드 필요 없음) |
 
 ## 직접 돌리기
 

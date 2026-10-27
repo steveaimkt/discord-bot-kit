@@ -1,7 +1,7 @@
 {
   "name": "discord-bot-kit",
   "description": "Claude Code 공식 디스코드 채널(discord@claude-plugins-official)을 윈도우 · 맥에서 설치하고 켜는 점검 · 수리 스킬과 스크립트.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "한성국",
     "email": "steve@wmbb.kr"

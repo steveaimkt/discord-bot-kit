@@ -1,11 +1,23 @@
 ﻿# discord-bot-kit · 윈도우 점검 · 수리
-# 사용 · powershell -NoProfile -ExecutionPolicy Bypass -File doctor.ps1 [-Fix] [-Project <폴더>]
+# 사용 · powershell -NoProfile -ExecutionPolicy Bypass -File doctor.ps1 [-Fix] [-Project <폴더>] [-Channel <채널 이름 또는 ID>] [-NoPatch]
 # -Fix 없이 돌리면 보기만 한다. -Fix 를 주면 관리자 권한 없이 고칠 수 있는 것만 고친다.
+# -Channel · DM 답장이 막힐 때, 나와 봇만 있는 서버 채널로 받도록 access.json 에 채널을 넣는다
+# -NoPatch · DM 답장 우회 패치를 넣지 않는다 (넣은 패치는 -Unpatch 로 되돌린다)
 # 이 파일은 UTF-8(BOM) 으로 저장한다. BOM 이 없으면 윈도우 PowerShell 5.1 이 한글을 깨뜨린다.
+#
+# 설계 (2026-10-27 · 맥에서 재현 확인)
+# 1. 디스코드 플러그인은 설치하되 사용자 범위에서 꺼 둔다. 봇 세션만 --settings 로 켠다
+#    → 확장 채팅창이 토큰 없이 서버를 띄웠다 실패하며 mcp-needs-auth-cache.json 을 오염시키지 않는다 (claude-code#80822 · #42769)
+# 2. 봇을 켜기 전에 그 캐시의 plugin:discord:discord 항목을 지운다
+# 3. DM 답장이 「not allowlisted」로 막히는 문제(claude-plugins-official#6768)에 작은 우회 패치를 넣는다
+# 4. .env 의 BOM · CRLF 를 고친다 (공식 서버는 \n 으로만 나눠 \r 이 토큰에 붙는다)
 
 param(
   [switch]$Fix,
-  [string]$Project = (Get-Location).Path
+  [string]$Project = (Get-Location).Path,
+  [string]$Channel = '',
+  [switch]$NoPatch,
+  [switch]$Unpatch
 )
 
 $ErrorActionPreference = 'Continue'
@@ -176,14 +188,76 @@ if (Has-Cmd 'claude') {
     if ($p) { Add-R 'plugin' '디스코드 플러그인' 'fixed' "설치함 v$($p.version)" '' }
     else { Add-R 'plugin' '디스코드 플러그인' 'fail' ($r.out.Trim() -split "`n" | Select-Object -Last 1) 'claude plugin marketplace update claude-plugins-official 뒤 다시' }
   } elseif ($p) {
-    if (-not $p.enabled) {
-      if ($Fix) { Run-Claude @('plugin', 'enable', $PluginId) | Out-Null; Add-R 'plugin' '디스코드 플러그인' 'fixed' "v$($p.version) · 꺼져 있던 것을 켬" '' }
-      else { Add-R 'plugin' '디스코드 플러그인' 'warn' "v$($p.version) · 꺼져 있다" '-Fix 로 켠다' }
-    } else { Add-R 'plugin' '디스코드 플러그인' 'ok' "v$($p.version)" '' }
+    Add-R 'plugin' '디스코드 플러그인' 'ok' "v$($p.version)" ''
   } else {
     Add-R 'plugin' '디스코드 플러그인' 'fail' '설치되지 않았다' '-Fix 로 설치'
   }
+  # 평소엔 꺼 두고 봇 세션에서만 켠다 (봇켜기.cmd 가 --settings 로 켬)
+  if ($p) {
+    $pl2 = Parse-JsonLoose (Run-Claude @('plugin', 'list', '--json')).out
+    $on = $false
+    if ($pl2) { foreach ($x in @($pl2)) { if ($x.id -eq $PluginId -and $x.enabled) { $on = $true } } }
+    if ($on -and $Fix) {
+      $r = Run-Claude @('plugin', 'disable', $PluginId, '--scope', 'user')
+      Add-R 'isolate' '디스코드 플러그인 격리' 'fixed' '평소엔 꺼 둠 · 봇 세션에서만 켬' ''
+    } elseif ($on) {
+      Add-R 'isolate' '디스코드 플러그인 격리' 'warn' '모든 세션에서 켜져 있다 · 채팅창도 봇 서버를 띄운다' '-Fix 로 꺼 둔다 (봇켜기.cmd 가 봇 세션에서만 켬)'
+    } else {
+      Add-R 'isolate' '디스코드 플러그인 격리' 'ok' '평소엔 꺼짐 · 봇 세션에서만 켬' ''
+    }
+  }
   if ($p) { $installPath = $p.installPath }
+}
+
+# 5-1 · 인증 캐시 오염 (토큰 없이 실패한 기록이 남으면 봇 세션이 서버를 조용히 건너뛴다)
+$authCache = Join-Path $Home_ '.claude\mcp-needs-auth-cache.json'
+if (Test-Path $authCache) {
+  $ac = Parse-JsonLoose ([IO.File]::ReadAllText($authCache))
+  if ($ac -and ($ac.PSObject.Properties.Name -contains 'plugin:discord:discord')) {
+    if ($Fix) {
+      $ac.PSObject.Properties.Remove('plugin:discord:discord')
+      Write-Utf8NoBom $authCache ($ac | ConvertTo-Json -Depth 10 -Compress)
+      Add-R 'authcache' '인증 캐시' 'fixed' '디스코드 실패 기록을 지움' ''
+    } else {
+      Add-R 'authcache' '인증 캐시' 'fail' '디스코드 실패 기록이 남아 봇 서버가 안 뜰 수 있다' '-Fix 로 지운다 (봇켜기.cmd 도 켜기 전에 지움)'
+    }
+  } else { Add-R 'authcache' '인증 캐시' 'ok' '디스코드 실패 기록 없음' '' }
+}
+
+# 5-2 · DM 답장 막힘 우회 패치 (claude-plugins-official#6768)
+#   받은 DM 의 보낸 사람이 허용 목록에 있으면, 채널 종류 판정과 상관없이 답장을 통과시킨다.
+#   보낸 사람이 이미 받는 쪽 허용 판정을 통과한 경우에만 해당해서 열리는 범위는 그대로다.
+$Marker = 'discord-bot-kit patch'
+if ($installPath -and (Test-Path (Join-Path $installPath 'server.ts'))) {
+  $srv = Join-Path $installPath 'server.ts'
+  $code = [IO.File]::ReadAllText($srv)
+  $bak = "$srv.orig"
+  if ($Unpatch) {
+    if (Test-Path $bak) { Copy-Item $bak $srv -Force; Add-R 'patch' 'DM 답장 우회 패치' 'fixed' '되돌림 (원본 복구)' '' }
+    else { Add-R 'patch' 'DM 답장 우회 패치' 'ok' '넣은 적 없음' '' }
+  } elseif ($code.Contains($Marker)) {
+    Add-R 'patch' 'DM 답장 우회 패치' 'ok' '들어가 있음' ''
+  } elseif ($NoPatch) {
+    Add-R 'patch' 'DM 답장 우회 패치' 'warn' '넣지 않음 (-NoPatch)' 'DM 답장이 막히면 -Channel 로 서버 채널을 쓴다'
+  } else {
+    $fn = $code.IndexOf('async function fetchAllowedChannel(')
+    $anchor = 'const access = loadAccess()'
+    $at = -1; if ($fn -ge 0) { $at = $code.IndexOf($anchor, $fn) }
+    if ($at -lt 0) {
+      Add-R 'patch' 'DM 답장 우회 패치' 'warn' '플러그인 코드가 바뀌어 넣지 못함 (새 버전이면 고쳐졌을 수 있음)' 'DM 답장이 막히면 -Channel 로 서버 채널을 쓴다'
+    } elseif ($Fix) {
+      $nl = "`n"; if ($code.Contains("`r`n")) { $nl = "`r`n" }
+      $lineEnd = $code.IndexOf("`n", $at) + 1
+      $ins = "  // $Marker · DM 답장 막힘 우회 (claude-plugins-official#6768)$nl" +
+             "  const knownDmUser = dmChannelUsers.get(id)$nl" +
+             "  if (knownDmUser && access.allowFrom.includes(knownDmUser)) return ch$nl"
+      if (-not (Test-Path $bak)) { Copy-Item $srv $bak }
+      [IO.File]::WriteAllText($srv, $code.Insert($lineEnd, $ins), (New-Object System.Text.UTF8Encoding($false)))
+      Add-R 'patch' 'DM 답장 우회 패치' 'fixed' '넣음 · 원본은 server.ts.orig' '봇이 이미 켜져 있으면 /exit 뒤 봇켜기.cmd 로 다시 켠다'
+    } else {
+      Add-R 'patch' 'DM 답장 우회 패치' 'warn' '아직 안 넣음' '-Fix 로 넣는다'
+    }
+  }
 }
 
 # 6 · 첫 실행 준비 (discord.js 를 미리 받아 두면 봇 첫 기동에서 시간 초과가 안 난다)
@@ -209,6 +283,8 @@ if (Test-Path $EnvFile) {
   $bad = ''
   if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $bad = 'UTF-8 BOM' }
   elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $bad = 'UTF-16' }
+  # 공식 서버는 \n 으로만 나눠서 CRLF 면 토큰 끝에 \r 이 붙어 로그인에 실패한다
+  if ([Array]::IndexOf($bytes, [byte]13) -ge 0) { $bad = ($bad + ' CRLF 줄바꿈').Trim() }
   $text = [IO.File]::ReadAllText($EnvFile)
   foreach ($line in ($text -split "`r?`n")) {
     $l = $line.Trim().TrimStart([char]0xFEFF)
@@ -266,6 +342,7 @@ if ($token) {
 
 # 9 · 페어링 상태
 $acc = Join-Path $StateDir 'access.json'
+if (-not $h -and $token) { $h = @{ Authorization = "Bot $token" } }
 if (Test-Path $acc) {
   $a = Parse-JsonLoose ([IO.File]::ReadAllText($acc))
   $n = 0; if ($a -and $a.allowFrom) { $n = @($a.allowFrom).Count }
@@ -275,6 +352,65 @@ if (Test-Path $acc) {
   else { Add-R 'pair' '페어링' 'todo' '아직 아무도 없다' '봇에 DM → 받은 코드로 /discord:access pair <코드>' }
 } else {
   Add-R 'pair' '페어링' 'todo' '아직 안 함' '봇을 켠 뒤 봇에 DM → /discord:access pair <코드>'
+}
+
+# 9-1 · 서버 채널로 받기 (-Channel) · DM 답장이 막힐 때의 우회 (claude-plugins-official#6768 에 보고된 방법)
+if ($Channel -and $bot -and $token) {
+  $owners = @()
+  if (Test-Path $acc) { $a2 = Parse-JsonLoose ([IO.File]::ReadAllText($acc)); if ($a2 -and $a2.allowFrom) { $owners = @($a2.allowFrom) } }
+  if ($owners.Count -eq 0) {
+    Add-R 'channel' '서버 채널로 받기' 'fail' '페어링이 아직 안 돼 내 ID 를 모른다' '먼저 봇에 DM 을 보내 페어링한 뒤 다시'
+  } else {
+    $found = $null
+    try {
+      $gs = @(Invoke-RestMethod -Uri 'https://discord.com/api/v10/users/@me/guilds' -Headers $h -TimeoutSec 15 -ErrorAction Stop)
+      foreach ($g in $gs) {
+        $chs = @(Invoke-RestMethod -Uri "https://discord.com/api/v10/guilds/$($g.id)/channels" -Headers $h -TimeoutSec 15 -ErrorAction Stop)
+        foreach ($c in $chs) { if ($c.type -eq 0 -and ($c.id -eq $Channel -or $c.name -eq $Channel.TrimStart('#'))) { $found = $c } }
+      }
+    } catch {}
+    if (-not $found) {
+      Add-R 'channel' '서버 채널로 받기' 'fail' "「$Channel」 채널을 찾지 못했다" '디스코드 서버에 그 이름의 글 채널을 만들고, 봇이 볼 수 있게 한 뒤 다시'
+    } elseif ($Fix) {
+      $a3 = Parse-JsonLoose ([IO.File]::ReadAllText($acc))
+      if (-not ($a3.PSObject.Properties.Name -contains 'groups') -or -not $a3.groups) { $a3 | Add-Member -NotePropertyName groups -NotePropertyValue ([pscustomobject]@{}) -Force }
+      $entry = [pscustomobject]@{ requireMention = $false; allowFrom = $owners }
+      $a3.groups | Add-Member -NotePropertyName ([string]$found.id) -NotePropertyValue $entry -Force
+      Write-Utf8NoBom $acc ($a3 | ConvertTo-Json -Depth 10)
+      Add-R 'channel' '서버 채널로 받기' 'fixed' "#$($found.name) 에서 내 메시지에 답한다 (멘션 없이)" '휴대폰에서 DM 대신 이 채널에 쓴다'
+    } else {
+      Add-R 'channel' '서버 채널로 받기' 'todo' "#$($found.name) 를 찾음" '-Fix 와 함께 다시'
+    }
+  }
+}
+
+# 9-2 · 마지막으로 켠 봇 세션의 상태 (디스코드 MCP 로그)
+$logRoot = Join-Path $env:LOCALAPPDATA 'claude-cli-nodejs\Cache'
+if (Test-Path $logRoot) {
+  $last = Get-ChildItem -Path $logRoot -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { Join-Path $_.FullName 'mcp-logs-plugin-discord-discord' } |
+    Where-Object { Test-Path $_ } |
+    ForEach-Object { Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue } |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($last) {
+    $log = [IO.File]::ReadAllText($last.FullName)
+    $when = $last.LastWriteTime.ToString('MM-dd HH:mm')
+    if ($log -match 'channels feature is not currently available') {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)' '개인 Pro · Max 계정인지 본다. 회사 계정이면 관리자가 Channels 를 켠다. 계속 안 되면 대체 경로(Remote Control)로 간다'
+    } elseif ($log -match 'DISCORD_BOT_TOKEN required') {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 토큰을 못 읽었다' '토큰등록.cmd 다시 · -Fix 로 .env 를 고친다'
+    } elseif ($log -match 'Executable not found|ENOENT') {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' 'bun 을 찾지 못했다' '봇켜기.cmd 로 켠다 (bun 경로를 붙여 켬). 안 되면 -Fix'
+    } elseif ($log -match 'gateway connected' -or $log -match 'Channel notifications registered') {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'ok' '디스코드에 접속했고 채널이 등록됐다' ''
+    } elseif ($log -match 'Connection failed|CONNECTION_CLOSED') {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 시작하다 끝났다' "로그 · $($last.FullName)"
+    } else {
+      Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '접속 여부를 로그에서 찾지 못했다' "로그 · $($last.FullName)"
+    }
+  } else {
+    Add-R 'botlog' '마지막 봇 세션' 'todo' '아직 켠 적 없음' '봇켜기.cmd'
+  }
 }
 
 # 10 · 실습 폴더에 실행 파일 · 권한 설정 놓기

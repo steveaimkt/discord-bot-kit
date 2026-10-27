@@ -35,9 +35,38 @@ if ($problems.Count -gt 0) {
   exit 1
 }
 
+# 켜기 직전 정리 1 · 토큰 없이 실패한 기록이 인증 캐시에 남아 있으면 봇 서버가 조용히 안 뜬다 (claude-code#80822)
+$authCache = Join-Path $env:USERPROFILE '.claude\mcp-needs-auth-cache.json'
+if (Test-Path $authCache) {
+  try {
+    $ac = [IO.File]::ReadAllText($authCache) | ConvertFrom-Json
+    if ($ac.PSObject.Properties.Name -contains 'plugin:discord:discord') {
+      $ac.PSObject.Properties.Remove('plugin:discord:discord')
+      [IO.File]::WriteAllText($authCache, ($ac | ConvertTo-Json -Depth 10 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+      Write-Host '인증 캐시에 남은 디스코드 실패 기록을 지웠습니다.'
+    }
+  } catch {}
+}
+# 켜기 직전 정리 2 · .env 의 BOM · CRLF 를 걷어 낸다 (공식 서버는 \n 으로만 나눈다)
+$envFile = Join-Path $StateDir '.env'
+try {
+  $raw = [IO.File]::ReadAllText($envFile)
+  $clean = $raw.TrimStart([char]0xFEFF) -replace "`r", ''
+  if ($clean -ne $raw -or ([IO.File]::ReadAllBytes($envFile)[0] -eq 0xEF)) {
+    [IO.File]::WriteAllText($envFile, $clean, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host '토큰 파일(.env)의 줄바꿈 · BOM 을 고쳤습니다.'
+  }
+} catch {}
+
+# 디스코드 플러그인은 평소엔 꺼 두고, 이 세션에서만 켠다
+$settingsJson = '{"enabledPlugins":{"discord@claude-plugins-official":true}}'
+$settingsFile = Join-Path $env:TEMP 'discord-bot-kit-settings.json'
+[IO.File]::WriteAllText($settingsFile, $settingsJson, (New-Object System.Text.UTF8Encoding($false)))
+
 Write-Host ''
 Write-Host "봇을 켭니다 · $Project" -ForegroundColor Cyan
 Write-Host '디스코드에서 봇 이름 옆에 초록 점이 뜨면 켜진 것입니다.'
 Write-Host '처음 켤 때는 1~2분 걸릴 수 있습니다. 이 창은 닫지 않습니다.'
+Write-Host '2분이 지나도 초록 점이 없으면 채팅창에 «디스코드 봇 점검해줘».'
 Write-Host ''
-& claude --channels plugin:discord@claude-plugins-official --permission-mode acceptEdits
+& claude --settings $settingsFile --channels plugin:discord@claude-plugins-official --permission-mode acceptEdits

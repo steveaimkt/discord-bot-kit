@@ -3,15 +3,19 @@
 # 사용 · bash doctor.sh [--fix] [--project <폴더>]
 # --fix 없이 돌리면 보기만 한다.
 
-FIX=0
+FIX=0; NOPATCH=0; UNPATCH=0; CHANNEL=""
 PROJECT="$(pwd)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --fix) FIX=1 ;;
     --project) PROJECT="$2"; shift ;;
+    --channel) CHANNEL="$2"; shift ;;
+    --no-patch) NOPATCH=1 ;;
+    --unpatch) UNPATCH=1 ;;
   esac
   shift
 done
+# 설계는 doctor.ps1 머리말과 같다 · 플러그인 격리 · 인증 캐시 · DM 답장 우회 패치 · .env BOM/CRLF · 켠 뒤 로그 판정
 
 unset CLAUDECODE
 MARKET="claude-plugins-official"
@@ -83,12 +87,51 @@ for p in d:
     claude plugin install "$PLUGIN_ID" --scope user >/dev/null 2>&1
     INFO="$(plugin_info)"
     [ -n "$INFO" ] && add plugin "디스코드 플러그인" fixed "설치함 v$(printf '%s' "$INFO" | cut -f1)" "" || add plugin "디스코드 플러그인" fail "설치하지 못했다" "claude plugin marketplace update $MARKET 뒤 다시"
-  elif [ -n "$INFO" ]; then
-    if [ "$(printf '%s' "$INFO" | cut -f2)" = true ]; then add plugin "디스코드 플러그인" ok "v$(printf '%s' "$INFO" | cut -f1)" ""
-    elif [ $FIX = 1 ]; then claude plugin enable "$PLUGIN_ID" >/dev/null 2>&1; add plugin "디스코드 플러그인" fixed "꺼져 있던 것을 켬" ""
-    else add plugin "디스코드 플러그인" warn "꺼져 있다" "--fix 로 켠다"; fi
+  elif [ -n "$INFO" ]; then add plugin "디스코드 플러그인" ok "v$(printf '%s' "$INFO" | cut -f1)" ""
   else add plugin "디스코드 플러그인" fail "설치되지 않았다" "--fix 로 설치"; fi
   INSTALL_PATH="$(printf '%s' "$INFO" | cut -f3)"
+  # 평소엔 꺼 두고 봇 세션에서만 켠다 (봇켜기가 --settings 로 켬)
+  INFO="$(plugin_info)"
+  if [ -n "$INFO" ]; then
+    if [ "$(printf '%s' "$INFO" | cut -f2)" = true ]; then
+      if [ $FIX = 1 ]; then claude plugin disable "$PLUGIN_ID" --scope user >/dev/null 2>&1; add isolate "디스코드 플러그인 격리" fixed "평소엔 꺼 둠 · 봇 세션에서만 켬" ""
+      else add isolate "디스코드 플러그인 격리" warn "모든 세션에서 켜져 있다 · 채팅창도 봇 서버를 띄운다" "--fix 로 꺼 둔다"; fi
+    else add isolate "디스코드 플러그인 격리" ok "평소엔 꺼짐 · 봇 세션에서만 켬" ""; fi
+  fi
+fi
+
+# 5-1 · 인증 캐시 오염
+AC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/mcp-needs-auth-cache.json"
+if [ -f "$AC" ]; then
+  if python3 -c "import json,sys;sys.exit(0 if 'plugin:discord:discord' in json.load(open(sys.argv[1])) else 1)" "$AC" 2>/dev/null; then
+    if [ $FIX = 1 ]; then python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d.pop('plugin:discord:discord',None);json.dump(d,open(p,'w'))" "$AC"; add authcache "인증 캐시" fixed "디스코드 실패 기록을 지움" ""
+    else add authcache "인증 캐시" fail "디스코드 실패 기록이 남아 봇 서버가 안 뜰 수 있다" "--fix 로 지운다 (봇켜기도 켜기 전에 지움)"; fi
+  else add authcache "인증 캐시" ok "디스코드 실패 기록 없음" ""; fi
+fi
+
+# 5-2 · DM 답장 막힘 우회 패치 (claude-plugins-official#6768)
+if [ -n "$INSTALL_PATH" ] && [ -f "$INSTALL_PATH/server.ts" ]; then
+  R="$(python3 - "$INSTALL_PATH/server.ts" "$FIX" "$NOPATCH" "$UNPATCH" <<'PY'
+import sys,os,shutil
+p,fix,nop,unp=sys.argv[1],sys.argv[2]=='1',sys.argv[3]=='1',sys.argv[4]=='1'
+M='discord-bot-kit patch'; s=open(p,encoding='utf-8').read(); bak=p+'.orig'
+if unp:
+    if os.path.exists(bak): shutil.copy(bak,p); print('fixed\t되돌림 (원본 복구)\t')
+    else: print('ok\t넣은 적 없음\t')
+elif M in s: print('ok\t들어가 있음\t')
+elif nop: print('warn\t넣지 않음 (--no-patch)\tDM 답장이 막히면 --channel 로 서버 채널을 쓴다')
+else:
+    fn=s.find('async function fetchAllowedChannel('); at=s.find('const access = loadAccess()',fn) if fn>=0 else -1
+    if at<0: print('warn\t플러그인 코드가 바뀌어 넣지 못함\tDM 답장이 막히면 --channel 로 서버 채널을 쓴다')
+    elif fix:
+        nl='\r\n' if '\r\n' in s else '\n'; e=s.find('\n',at)+1
+        ins=f"  // {M} · DM 답장 막힘 우회 (claude-plugins-official#6768){nl}  const knownDmUser = dmChannelUsers.get(id){nl}  if (knownDmUser && access.allowFrom.includes(knownDmUser)) return ch{nl}"
+        if not os.path.exists(bak): shutil.copy(p,bak)
+        open(p,'w',encoding='utf-8').write(s[:e]+ins+s[e:]); print('fixed\t넣음 · 원본은 server.ts.orig\t봇이 켜져 있으면 /exit 뒤 다시 켠다')
+    else: print('warn\t아직 안 넣음\t--fix 로 넣는다')
+PY
+)"
+  add patch "DM 답장 우회 패치" "$(printf '%s' "$R" | cut -f1)" "$(printf '%s' "$R" | cut -f2)" "$(printf '%s' "$R" | cut -f3)"
 fi
 
 # 6 · 봇 부품 미리 받기
@@ -105,6 +148,7 @@ TOKEN=""
 if [ -f "$ENV_FILE" ]; then
   BOM=""
   [ "$(head -c3 "$ENV_FILE" | xxd -p)" = "efbbbf" ] && BOM="UTF-8 BOM"
+  grep -q $'\r' "$ENV_FILE" && BOM="$(printf '%s CRLF 줄바꿈' "$BOM" | sed 's/^ //')"
   TOKEN="$(LC_ALL=C sed -e 's/^\xEF\xBB\xBF//' "$ENV_FILE" | grep -E '^[[:space:]]*DISCORD_BOT_TOKEN[[:space:]]*=' | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^["'\'']//; s/["'\'']$//; s/^Bot //')"
   if [ -n "$BOM" ] && [ -n "$TOKEN" ]; then
     if [ $FIX = 1 ]; then printf 'DISCORD_BOT_TOKEN=%s\n' "$TOKEN" > "$ENV_FILE"; chmod 600 "$ENV_FILE"; add envfile "토큰 파일 (.env)" fixed "$BOM → 고쳐 씀" ""
@@ -144,6 +188,45 @@ if [ -f "$ACC" ]; then
   elif [ "${N:-0}" -gt 0 ]; then add pair "페어링" warn "허용 $N 명 · 정책 $POL" "봇 세션에서 /discord:access policy allowlist"
   else add pair "페어링" todo "아직 아무도 없다" "봇에 DM → /discord:access pair <코드>"; fi
 else add pair "페어링" todo "아직 안 함" "봇을 켠 뒤 봇에 DM → /discord:access pair <코드>"; fi
+
+# 9-1 · 서버 채널로 받기 (--channel)
+if [ -n "$CHANNEL" ] && [ -n "$TOKEN" ]; then
+  R="$(python3 - "$TOKEN" "$CHANNEL" "$ACC" "$FIX" <<'PY'
+import json,sys,urllib.request
+tok,ch,acc,fix=sys.argv[1],sys.argv[2].lstrip('#'),sys.argv[3],sys.argv[4]=='1'
+def api(p):
+    r=urllib.request.Request('https://discord.com/api/v10'+p,headers={'Authorization':'Bot '+tok,'User-Agent':'DiscordBot (discord-bot-kit, 0.3)'})
+    return json.load(urllib.request.urlopen(r,timeout=15))
+try: a=json.load(open(acc))
+except Exception: a={}
+owners=a.get('allowFrom',[])
+if not owners: print('fail\t페어링이 아직 안 돼 내 ID 를 모른다\t먼저 봇에 DM 을 보내 페어링한 뒤 다시'); sys.exit()
+found=None
+for g in api('/users/@me/guilds'):
+    for c in api(f"/guilds/{g['id']}/channels"):
+        if c.get('type')==0 and (c['id']==ch or c['name']==ch): found=c
+if not found: print(f'fail\t「{ch}」 채널을 찾지 못했다\t그 이름의 글 채널을 만들고 봇이 볼 수 있게 한 뒤 다시'); sys.exit()
+if fix:
+    a.setdefault('groups',{})[found['id']]={'requireMention':False,'allowFrom':owners}
+    json.dump(a,open(acc,'w'),ensure_ascii=False,indent=2); print(f"fixed\t#{found['name']} 에서 내 메시지에 답한다 (멘션 없이)\t휴대폰에서 DM 대신 이 채널에 쓴다")
+else: print(f"todo\t#{found['name']} 를 찾음\t--fix 와 함께 다시")
+PY
+)"
+  add channel "서버 채널로 받기" "$(printf '%s' "$R" | cut -f1)" "$(printf '%s' "$R" | cut -f2)" "$(printf '%s' "$R" | cut -f3)"
+fi
+
+# 9-2 · 마지막으로 켠 봇 세션의 상태 (디스코드 MCP 로그)
+LOGROOT="$HOME/Library/Caches/claude-cli-nodejs"; [ -d "$LOGROOT" ] || LOGROOT="$HOME/.cache/claude-cli-nodejs"
+LAST="$(ls -t "$LOGROOT"/*/mcp-logs-plugin-discord-discord/*.jsonl 2>/dev/null | head -1)"
+if [ -n "$LAST" ]; then
+  WHEN="$(date -r "$LAST" '+%m-%d %H:%M')"
+  if grep -q 'channels feature is not currently available' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)" "개인 Pro · Max 계정인지 본다. 계속 안 되면 대체 경로(Remote Control)"
+  elif grep -q 'DISCORD_BOT_TOKEN required' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 토큰을 못 읽었다" "토큰등록 다시 · --fix"
+  elif grep -q -E 'Executable not found|ENOENT' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "bun 을 찾지 못했다" "봇켜기로 켠다 · 안 되면 --fix"
+  elif grep -q -E 'gateway connected|Channel notifications registered' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" ok "디스코드에 접속했고 채널이 등록됐다" ""
+  elif grep -q -E 'Connection failed|CONNECTION_CLOSED' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 시작하다 끝났다" "로그 · $LAST"
+  else add botlog "마지막 봇 세션 ($WHEN)" warn "접속 여부를 로그에서 찾지 못했다" "로그 · $LAST"; fi
+else add botlog "마지막 봇 세션" todo "아직 켠 적 없음" "봇켜기"; fi
 
 # 10 · 실습 폴더에 실행 파일 · 권한 설정
 if [ $FIX = 1 ] && [ -d "$PROJECT" ]; then
