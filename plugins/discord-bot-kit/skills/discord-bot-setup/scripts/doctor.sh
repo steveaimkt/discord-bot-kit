@@ -47,10 +47,15 @@ esac
 
 # 2 · Claude CLI
 if has claude; then
+  ver_ok() { printf '%s' "$1" | awk '{split($1,a,"."); exit !((a[1]>2)||(a[1]==2&&(a[2]>1||(a[2]==1&&a[3]>=80))))}'; }
   V="$(claude --version 2>/dev/null | head -1)"
-  if printf '%s' "$V" | awk '{split($1,a,"."); exit !((a[1]>2)||(a[1]==2&&(a[2]>1||(a[2]==1&&a[3]>=80))))}'; then
+  if ver_ok "$V"; then
     add claude "Claude CLI" ok "$V" ""
-  elif [ $FIX = 1 ]; then claude update >/dev/null 2>&1; add claude "Claude CLI" fixed "$V → claude update" "안티그래비티를 껐다 켠다"
+  elif [ $FIX = 1 ]; then
+    # 업데이트 뒤 버전을 다시 읽어 실제로 올라갔을 때만 fixed
+    claude update >/dev/null 2>&1; V2="$(claude --version 2>/dev/null | head -1)"
+    if ver_ok "$V2"; then add claude "Claude CLI" fixed "$V → $V2" "안티그래비티를 껐다 켠다"
+    else add claude "Claude CLI" fail "$V · claude update 로 올리지 못했다 (2.1.80 이상 필요)" "curl -fsSL https://claude.ai/install.sh | bash 로 다시 깐다"; fi
   else add claude "Claude CLI" fail "$V (2.1.80 이상 필요)" "claude update"; fi
 else
   add claude "Claude CLI" fail "찾을 수 없다" "과제 1 · curl -fsSL https://claude.ai/install.sh | bash"
@@ -94,7 +99,11 @@ for p in d:
   INFO="$(plugin_info)"
   if [ -n "$INFO" ]; then
     if [ "$(printf '%s' "$INFO" | cut -f2)" = true ]; then
-      if [ $FIX = 1 ]; then claude plugin disable "$PLUGIN_ID" --scope user >/dev/null 2>&1; add isolate "디스코드 플러그인 격리" fixed "평소엔 꺼 둠 · 봇 세션에서만 켬" ""
+      if [ $FIX = 1 ]; then
+        # 끈 뒤 다시 읽어 실제로 꺼졌을 때만 fixed
+        claude plugin disable "$PLUGIN_ID" --scope user >/dev/null 2>&1
+        if [ "$(plugin_info | cut -f2)" = false ]; then add isolate "디스코드 플러그인 격리" fixed "평소엔 꺼 둠 · 봇 세션에서만 켬" ""
+        else add isolate "디스코드 플러그인 격리" fail "끄지 못했다 · 채팅창도 봇 서버를 띄운다" "claude plugin disable $PLUGIN_ID --scope user 를 직접 실행"; fi
       else add isolate "디스코드 플러그인 격리" warn "모든 세션에서 켜져 있다 · 채팅창도 봇 서버를 띄운다" "--fix 로 꺼 둔다"; fi
     else add isolate "디스코드 플러그인 격리" ok "평소엔 꺼짐 · 봇 세션에서만 켬" ""; fi
   fi
@@ -220,12 +229,27 @@ LOGROOT="$HOME/Library/Caches/claude-cli-nodejs"; [ -d "$LOGROOT" ] || LOGROOT="
 LAST="$(ls -t "$LOGROOT"/*/mcp-logs-plugin-discord-discord/*.jsonl 2>/dev/null | head -1)"
 if [ -n "$LAST" ]; then
   WHEN="$(date -r "$LAST" '+%m-%d %H:%M')"
-  if grep -q 'channels feature is not currently available' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)" "개인 Pro · Max 계정인지 본다. 계속 안 되면 대체 경로(Remote Control)"
-  elif grep -q 'DISCORD_BOT_TOKEN required' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 토큰을 못 읽었다" "토큰등록 다시 · --fix"
-  elif grep -q -E 'Executable not found|ENOENT' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "bun 을 찾지 못했다" "봇켜기로 켠다 · 안 되면 --fix"
-  elif grep -q -E 'gateway connected|Channel notifications registered' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" ok "디스코드에 접속했고 채널이 등록됐다" ""
-  elif grep -q -E 'Connection failed|CONNECTION_CLOSED' "$LAST"; then add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 시작하다 끝났다" "로그 · $LAST"
-  else add botlog "마지막 봇 세션 ($WHEN)" warn "접속 여부를 로그에서 찾지 못했다" "로그 · $LAST"; fi
+  # 로그의 「마지막」 상태 줄로 판정한다. 등록 뒤 끊긴 세션을 ✅ 로 보지 않는다.
+  # DM 을 받거나 답한 줄이 있어야 디스코드 접속으로 본다 (등록만으로는 접속을 알 수 없다)
+  STATE="$(LC_ALL=C awk '
+    /channels feature is not currently available/ {s="feature"}
+    /DISCORD_BOT_TOKEN required/ {s="token"}
+    /Executable not found|ENOENT/ {s="bun"}
+    /login failed/ {s="login"}
+    /Connection failed|CONNECTION_CLOSED/ {s="closed"}
+    /Channel notifications registered/ {s="registered"}
+    /gateway connected|notifications\/claude\/channel|Tool .reply. completed/ {s="talking"}
+    END {print s}' "$LAST")"
+  case "$STATE" in
+    feature) add botlog "마지막 봇 세션 ($WHEN)" fail "채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)" "개인 Pro · Max 계정인지 본다. 계속 안 되면 대체 경로(Remote Control)" ;;
+    token) add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 토큰을 못 읽었다" "토큰등록 다시 · --fix" ;;
+    bun) add botlog "마지막 봇 세션 ($WHEN)" fail "bun 을 찾지 못했다" "봇켜기로 켠다 · 안 되면 --fix" ;;
+    login) add botlog "마지막 봇 세션 ($WHEN)" fail "디스코드 로그인에 실패했다 · 토큰이 틀렸거나 Reset 됐다" "개발자 포털에서 토큰을 새로 받아 토큰등록 다시" ;;
+    closed) add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 끊겼다" "봇켜기로 다시 켠다 · 로그 · $LAST" ;;
+    talking) add botlog "마지막 봇 세션 ($WHEN)" ok "디스코드 DM 을 주고받았다" "" ;;
+    registered) add botlog "마지막 봇 세션 ($WHEN)" warn "채널은 등록됐다 · 디스코드 접속은 아직 확인 전" "휴대폰에서 봇에게 DM 을 한 번 보낸다" ;;
+    *) add botlog "마지막 봇 세션 ($WHEN)" warn "접속 여부를 로그에서 찾지 못했다" "로그 · $LAST" ;;
+  esac
 else add botlog "마지막 봇 세션" todo "아직 켠 적 없음" "봇켜기"; fi
 
 # 10 · 실습 폴더에 실행 파일 · 권한 설정

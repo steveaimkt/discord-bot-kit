@@ -99,7 +99,7 @@ $eff = Get-ExecutionPolicy
 if ($eff -eq 'Restricted' -or $eff -eq 'AllSigned') {
   if ($Fix) {
     try { Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force -ErrorAction Stop; Add-R 'policy' '스크립트 실행 정책' 'fixed' "$eff → RemoteSigned (내 계정만)" '' }
-    catch { Add-R 'policy' '스크립트 실행 정책' 'warn' "$eff · 바꾸지 못했다 (회사 정책)" '봇켜기.cmd 는 이 정책과 상관없이 돈다' }
+    catch { Add-R 'policy' '스크립트 실행 정책' 'warn' "$eff · 바꾸지 못했다 (회사 정책)" '회사 그룹 정책이면 봇켜기.cmd 도 막힐 수 있다 · 손을 들어 강사에게' }
   } else {
     Add-R 'policy' '스크립트 실행 정책' 'warn' "$eff" '-Fix 로 RemoteSigned 로 바꾼다 (내 계정만)'
   }
@@ -121,7 +121,19 @@ if (Has-Cmd 'claude') {
   }
   if ($okVer) { Add-R 'claude' 'Claude CLI' 'ok' $v '' }
   else {
-    if ($Fix) { & claude update 2>&1 | Out-Null; Add-R 'claude' 'Claude CLI' 'fixed' "$v → claude update 실행" '안티그래비티를 껐다 켠다' }
+    if ($Fix) {
+      # 업데이트 뒤 버전을 다시 읽어 실제로 올라갔을 때만 fixed
+      & claude update 2>&1 | Out-Null
+      $v2 = (& claude --version 2>&1 | Out-String).Trim()
+      $m2 = [regex]::Match($v2, '(\d+)\.(\d+)\.(\d+)')
+      $ok2 = $false
+      if ($m2.Success) {
+        $maj = [int]$m2.Groups[1].Value; $min = [int]$m2.Groups[2].Value; $pat = [int]$m2.Groups[3].Value
+        $ok2 = ($maj -gt 2) -or ($maj -eq 2 -and ($min -gt 1 -or ($min -eq 1 -and $pat -ge 80)))
+      }
+      if ($ok2) { Add-R 'claude' 'Claude CLI' 'fixed' "$v → $v2" '안티그래비티를 껐다 켠다' }
+      else { Add-R 'claude' 'Claude CLI' 'fail' "$v · claude update 로 올리지 못했다 (2.1.80 이상 필요)" 'irm https://claude.ai/install.ps1 | iex 로 다시 깐다' }
+    }
     else { Add-R 'claude' 'Claude CLI' 'fail' "$v (2.1.80 이상 필요)" 'claude update' }
   }
 } else {
@@ -199,7 +211,12 @@ if (Has-Cmd 'claude') {
     if ($pl2) { foreach ($x in @($pl2)) { if ($x.id -eq $PluginId -and $x.enabled) { $on = $true } } }
     if ($on -and $Fix) {
       $r = Run-Claude @('plugin', 'disable', $PluginId, '--scope', 'user')
-      Add-R 'isolate' '디스코드 플러그인 격리' 'fixed' '평소엔 꺼 둠 · 봇 세션에서만 켬' ''
+      # 끈 뒤 다시 읽어 실제로 꺼졌을 때만 fixed
+      $pl3 = Parse-JsonLoose (Run-Claude @('plugin', 'list', '--json')).out
+      $still = $true
+      if ($pl3) { foreach ($x in @($pl3)) { if ($x.id -eq $PluginId) { $still = [bool]$x.enabled } } }
+      if (-not $still) { Add-R 'isolate' '디스코드 플러그인 격리' 'fixed' '평소엔 꺼 둠 · 봇 세션에서만 켬' '' }
+      else { Add-R 'isolate' '디스코드 플러그인 격리' 'fail' '끄지 못했다 · 채팅창도 봇 서버를 띄운다' "claude plugin disable $PluginId --scope user 를 직접 실행" }
     } elseif ($on) {
       Add-R 'isolate' '디스코드 플러그인 격리' 'warn' '모든 세션에서 켜져 있다 · 채팅창도 봇 서버를 띄운다' '-Fix 로 꺼 둔다 (봇켜기.cmd 가 봇 세션에서만 켬)'
     } else {
@@ -395,18 +412,27 @@ if (Test-Path $logRoot) {
   if ($last) {
     $log = [IO.File]::ReadAllText($last.FullName)
     $when = $last.LastWriteTime.ToString('MM-dd HH:mm')
-    if ($log -match 'channels feature is not currently available') {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)' '개인 Pro · Max 계정인지 본다. 회사 계정이면 관리자가 Channels 를 켠다. 계속 안 되면 대체 경로(Remote Control)로 간다'
-    } elseif ($log -match 'DISCORD_BOT_TOKEN required') {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 토큰을 못 읽었다' '토큰등록.cmd 다시 · -Fix 로 .env 를 고친다'
-    } elseif ($log -match 'Executable not found|ENOENT') {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' 'bun 을 찾지 못했다' '봇켜기.cmd 로 켠다 (bun 경로를 붙여 켬). 안 되면 -Fix'
-    } elseif ($log -match 'gateway connected' -or $log -match 'Channel notifications registered') {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'ok' '디스코드에 접속했고 채널이 등록됐다' ''
-    } elseif ($log -match 'Connection failed|CONNECTION_CLOSED') {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 시작하다 끝났다' "로그 · $($last.FullName)"
-    } else {
-      Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '접속 여부를 로그에서 찾지 못했다' "로그 · $($last.FullName)"
+    # 로그의 「마지막」 상태 줄로 판정한다. 등록 뒤 끊긴 세션을 ✅ 로 보지 않는다.
+    # DM 을 받거나 답한 줄이 있어야 디스코드 접속으로 본다 (등록만으로는 접속을 알 수 없다)
+    $state = ''
+    foreach ($line in ($log -split "`n")) {
+      if ($line -match 'channels feature is not currently available') { $state = 'feature' }
+      if ($line -match 'DISCORD_BOT_TOKEN required') { $state = 'token' }
+      if ($line -match 'Executable not found|ENOENT') { $state = 'bun' }
+      if ($line -match 'login failed') { $state = 'login' }
+      if ($line -match 'Connection failed|CONNECTION_CLOSED') { $state = 'closed' }
+      if ($line -match 'Channel notifications registered') { $state = 'registered' }
+      if ($line -match "gateway connected|notifications/claude/channel|Tool 'reply' completed") { $state = 'talking' }
+    }
+    switch ($state) {
+      'feature' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '채널 기능이 이 계정에서 꺼져 있다 (서버 쪽)' '개인 Pro · Max 계정인지 본다. 회사 계정이면 관리자가 Channels 를 켠다. 계속 안 되면 대체 경로(Remote Control)로 간다' }
+      'token' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 토큰을 못 읽었다' '토큰등록.cmd 다시 · -Fix 로 .env 를 고친다' }
+      'bun' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' 'bun 을 찾지 못했다' '봇켜기.cmd 로 켠다 (bun 경로를 붙여 켬). 안 되면 -Fix' }
+      'login' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '디스코드 로그인에 실패했다 · 토큰이 틀렸거나 Reset 됐다' '개발자 포털에서 토큰을 새로 받아 토큰등록.cmd 다시' }
+      'closed' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 끊겼다' "봇켜기.cmd 로 다시 켠다 · 로그 · $($last.FullName)" }
+      'talking' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'ok' '디스코드 DM 을 주고받았다' '' }
+      'registered' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '채널은 등록됐다 · 디스코드 접속은 아직 확인 전' '휴대폰에서 봇에게 DM 을 한 번 보낸다' }
+      default { Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '접속 여부를 로그에서 찾지 못했다' "로그 · $($last.FullName)" }
     }
   } else {
     Add-R 'botlog' '마지막 봇 세션' 'todo' '아직 켠 적 없음' '봇켜기.cmd'
