@@ -394,7 +394,7 @@ if ($Channel -and $bot -and $token) {
       $entry = [pscustomobject]@{ requireMention = $false; allowFrom = $owners }
       $a3.groups | Add-Member -NotePropertyName ([string]$found.id) -NotePropertyValue $entry -Force
       Write-Utf8NoBom $acc ($a3 | ConvertTo-Json -Depth 10)
-      Add-R 'channel' '서버 채널로 받기' 'fixed' "#$($found.name) 에서 내 메시지에 답한다 (멘션 없이)" '휴대폰에서 DM 대신 이 채널에 쓴다'
+      Add-R 'channel' '서버 채널로 받기' 'fixed' "#$($found.name) 에서 내 메시지에 답한다 (멘션 없이)" '디스코드에서 DM 대신 이 채널에 쓴다'
     } else {
       Add-R 'channel' '서버 채널로 받기' 'todo' "#$($found.name) 를 찾음" '-Fix 와 함께 다시'
     }
@@ -431,7 +431,7 @@ if (Test-Path $logRoot) {
       'login' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '디스코드 로그인에 실패했다 · 토큰이 틀렸거나 Reset 됐다' '개발자 포털에서 토큰을 새로 받아 토큰등록.cmd 다시' }
       'closed' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'fail' '봇 서버가 끊겼다' "봇켜기.cmd 로 다시 켠다 · 로그 · $($last.FullName)" }
       'talking' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'ok' '디스코드 DM 을 주고받았다' '' }
-      'registered' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '채널은 등록됐다 · 디스코드 접속은 아직 확인 전' '휴대폰에서 봇에게 DM 을 한 번 보낸다' }
+      'registered' { Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '채널은 등록됐다 · 디스코드 접속은 아직 확인 전' '디스코드에서 봇에게 DM 을 한 번 보낸다' }
       default { Add-R 'botlog' "마지막 봇 세션 ($when)" 'warn' '접속 여부를 로그에서 찾지 못했다' "로그 · $($last.FullName)" }
     }
   } else {

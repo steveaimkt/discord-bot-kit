@@ -217,7 +217,7 @@ for g in api('/users/@me/guilds'):
 if not found: print(f'fail\t「{ch}」 채널을 찾지 못했다\t그 이름의 글 채널을 만들고 봇이 볼 수 있게 한 뒤 다시'); sys.exit()
 if fix:
     a.setdefault('groups',{})[found['id']]={'requireMention':False,'allowFrom':owners}
-    json.dump(a,open(acc,'w'),ensure_ascii=False,indent=2); print(f"fixed\t#{found['name']} 에서 내 메시지에 답한다 (멘션 없이)\t휴대폰에서 DM 대신 이 채널에 쓴다")
+    json.dump(a,open(acc,'w'),ensure_ascii=False,indent=2); print(f"fixed\t#{found['name']} 에서 내 메시지에 답한다 (멘션 없이)\t디스코드에서 DM 대신 이 채널에 쓴다")
 else: print(f"todo\t#{found['name']} 를 찾음\t--fix 와 함께 다시")
 PY
 )"
@@ -247,7 +247,7 @@ if [ -n "$LAST" ]; then
     login) add botlog "마지막 봇 세션 ($WHEN)" fail "디스코드 로그인에 실패했다 · 토큰이 틀렸거나 Reset 됐다" "개발자 포털에서 토큰을 새로 받아 토큰등록 다시" ;;
     closed) add botlog "마지막 봇 세션 ($WHEN)" fail "봇 서버가 끊겼다" "봇켜기로 다시 켠다 · 로그 · $LAST" ;;
     talking) add botlog "마지막 봇 세션 ($WHEN)" ok "디스코드 DM 을 주고받았다" "" ;;
-    registered) add botlog "마지막 봇 세션 ($WHEN)" warn "채널은 등록됐다 · 디스코드 접속은 아직 확인 전" "휴대폰에서 봇에게 DM 을 한 번 보낸다" ;;
+    registered) add botlog "마지막 봇 세션 ($WHEN)" warn "채널은 등록됐다 · 디스코드 접속은 아직 확인 전" "디스코드에서 봇에게 DM 을 한 번 보낸다" ;;
     *) add botlog "마지막 봇 세션 ($WHEN)" warn "접속 여부를 로그에서 찾지 못했다" "로그 · $LAST" ;;
   esac
 else add botlog "마지막 봇 세션" todo "아직 켠 적 없음" "봇켜기"; fi

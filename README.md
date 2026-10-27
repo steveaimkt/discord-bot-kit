@@ -29,8 +29,8 @@ claude plugin install discord-bot-kit@discord-bot-kit
 | 2 봇 만들기 | 브라우저 | Developer Portal · 토큰 · Message Content Intent |
 | 3 토큰 넣기 | `토큰등록.cmd` | 토큰을 화면에 보이지 않게 받아 BOM 없는 `.env` 로 저장 · 디스코드에 직접 물어 Intent · 서버 확인 · 초대 주소 만들기 |
 | 4 봇 켜기 | 안티그래비티 터미널 | `.\봇켜기.cmd` |
-| 5 페어링 | 휴대폰 → 터미널 | `/discord:access pair <코드>` · `policy allowlist` |
-| 6 첫 대화 | 휴대폰 | 「지금 폴더에 무엇이 있는지 알려줘」 |
+| 5 페어링 | PC 디스코드 → 채팅창 | «페어링 코드 ○○○○○○» (`pair` 스크립트 · 공식 `/discord:access pair` + `policy allowlist`) |
+| 6 첫 대화 | PC 디스코드 | 「지금 폴더에 무엇이 있는지 알려줘」 |
 
 ## 윈도우에서 고치는 것
 
@@ -50,7 +50,7 @@ claude plugin install discord-bot-kit@discord-bot-kit
 | **DM 은 오는데 답장이 「not allowlisted」** (claude-plugins-official#6768) | `fetchAllowedChannel` 에 3줄 우회 패치 · 원본 `server.ts.orig` · `-Unpatch` 로 되돌림 · 그래도 막히면 `-Channel <이름>` 으로 서버 채널 전환 |
 | `.env` 가 CRLF | 공식 서버는 `\n` 으로만 나눠 `\r` 이 토큰에 붙는다 · 걷어 낸다 |
 | 켜졌는데 무반응 | 디스코드 MCP 로그로 판정 · 접속 · 「channels feature is not currently available」 · 토큰 · bun |
-| 끝내 안 됨 | 대체 경로 · 확장 입력칸 `/remote-control` + 휴대폰 Claude 앱 (bun · 디스코드 필요 없음) |
+| 끝내 안 됨 | 대체 경로 · 확장 입력칸 `/remote-control` + 브라우저 claude.ai/code (bun · 디스코드 필요 없음) |
 
 ## 직접 돌리기
 
