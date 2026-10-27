@@ -1,6 +1,6 @@
 ---
 name: discord-bot-setup
-description: Claude Code 공식 디스코드 채널(discord@claude-plugins-official)을 안티그래비티 + Claude Code 확장 환경에서 설치하고 켠다. 윈도우에서 자주 막히는 bun 경로 · 플러그인 설치 · 첫 실행 시간 초과 · .env 인코딩 · TLS · Message Content Intent · 서버 초대를 스크립트로 찾아 고친다. «디스코드 봇 세팅하자» «디스코드 봇 설치» «디스코드 봇 점검해줘» «봇이 답을 안 해» «봇이 안 켜져» «토큰 넣었어» 같은 말에 쓴다.
+description: Claude Code 공식 디스코드 채널(discord@claude-plugins-official)을 안티그래비티 + Claude Code 확장 환경에서 설치하고 켠다. 윈도우에서 자주 막히는 bun 경로 · 플러그인 설치 · 첫 실행 시간 초과 · .env 인코딩 · TLS · Message Content Intent · 서버 초대를 스크립트로 찾아 고친다. «디스코드 봇 세팅하자» «디스코드 봇 준비해줘» «디스코드 봇 설치» «디스코드 봇 점검해줘» «봇이 답을 안 해» «봇이 안 켜져» «토큰 넣었어» 같은 말에 쓴다.
 ---
 
 # 디스코드 봇 세팅 · 점검
@@ -72,6 +72,12 @@ bash "${CLAUDE_SKILL_DIR}/scripts/doctor.sh" --fix --project "$(pwd)"
 - `.claude/settings.local.json` 에 디스코드 답장 도구 허용 한 줄 넣기
 
 ---
+
+## 수업 흐름 · 설치는 오전, 세팅은 오후
+
+- 오전(1교시 ① STEP 7) · 클론 → 플러그인 설치 → 점검 스크립트 `-Fix`. 공식 디스코드 플러그인은 **꺼 둔 채로** 남는다. 토큰 · 서버 · 페어링 줄은 ⬜ 가 맞다
+- 오후(3교시) · 이미 준비됐으면 1단계는 확인만 하고 2단계(봇 만들기)부터 간다
+- 사용자가 «디스코드 봇 준비해줘» 라고 하면 1단계만 하고 멈춘다. 2단계로 넘어가지 않는다
 
 ## 1단계 · 점검과 자동 수리
 
